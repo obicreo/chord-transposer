@@ -1,0 +1,142 @@
+:root {
+      color-scheme: dark;
+      --bg: #0f1217;
+      --panel: #191e27;
+      --border: #354052;
+      --text: #f5f7fb;
+      --muted: #aab3c3;
+      --accent: #36b9f5;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: var(--bg);
+      color: var(--text);
+      font-family: Inter, system-ui, -apple-system, "Segoe UI", sans-serif;
+    }
+
+    .demo {
+      width: min(1000px, 100%);
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    h1 {
+      margin: 0 0 8px;
+      font-size: clamp(26px, 4vw, 34px);
+    }
+
+    .intro {
+      margin: 0 0 18px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .panel {
+      margin-bottom: 16px;
+      padding: 18px;
+      border: 1px solid var(--border);
+      border-radius: 15px;
+      background: var(--panel);
+    }
+
+    .key-button {
+      min-height: 42px;
+      border: 2px solid var(--accent);
+      border-radius: 0;
+      background: #1e1f21;
+      color: var(--text);
+      cursor: pointer;
+      font: inherit;
+      font-size: 16px;
+      width: 56px;
+      margin-right: 3px;
+    }
+
+    .key-button:hover {
+      filter: brightness(1.08);
+    }
+
+    .key-button.active {
+      background: var(--accent);
+      color: #07151d;
+    }
+
+    .key-button.original::after {
+      content: " •";
+      font-size: 12px;
+    }
+
+    .song-card {
+      overflow: hidden;
+      padding: 0;
+    }
+
+    .song-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 14px;
+      padding: 14px 18px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .song-header a {
+      color: var(--muted);
+      font-size: 13px;
+      text-decoration: none;
+    }
+
+    .song-header a:hover {
+      color: var(--text);
+      text-decoration: underline;
+    }
+
+    #song {
+      min-height: 520px;
+      margin: 0;
+      padding: 24px;
+      overflow: auto;
+      background: #0a0d12;
+      color: var(--text);
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 16px;
+      line-height: 1.55;
+      white-space: pre;
+    }
+
+    #song .chord {
+      color: var(--accent);
+      font-weight: 800;
+    }
+
+    .status-row {
+      display: flex;
+      min-height: 22px;
+      align-items: center;
+      justify-content: end;
+      gap: 16px;
+      margin-top: 11px;
+    }
+
+    .repo-link {
+      flex-shrink: 0;
+      color: var(--muted);
+      font-size: 13px;
+      text-decoration: none;
+    }
+    
+    @media (max-width: 620px) {
+      .demo {
+        padding: 12px;
+      }
+
+      #transposeButtons {
+        grid-template-columns: repeat(2, minmax(90px, 1fr));
+      }
+    }

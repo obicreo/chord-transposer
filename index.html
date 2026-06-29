@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1"
+  >
+
+  <meta
+    name="description"
+    content="Chord Transposer integration examples for standard text and ChordPro songs."
+  >
+
+  <title>Chord Transposer Demos</title>
+
+  <style>
+    :root {
+      color-scheme: dark;
+
+      --bg: #0f1217;
+      --panel: #191e27;
+      --border: #354052;
+      --text: #f5f7fb;
+      --muted: #aab3c3;
+      --accent: #36b9f5;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+      background: var(--bg);
+      color: var(--text);
+      font-family:
+        Inter,
+        system-ui,
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+    }
+
+    .demo-index {
+      width: min(720px, 100%);
+      padding: 40px;
+      border: 1px solid var(--border);
+      border-radius: 18px;
+      background: var(--panel);
+    }
+
+    .demo-index h1 {
+      margin: 0 0 12px;
+      font-size: clamp(32px, 6vw, 48px);
+      line-height: 1.1;
+      letter-spacing: -0.03em;
+    }
+
+    .demo-index p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 17px;
+      line-height: 1.6;
+    }
+
+    .demo-links {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 14px;
+      margin-top: 28px;
+    }
+
+    .demo-links a {
+      display: flex;
+      min-height: 64px;
+      align-items: center;
+      justify-content: center;
+      padding: 14px 18px;
+      border: 2px solid var(--accent);
+      border-radius: 10px;
+      background: transparent;
+      color: var(--text);
+      font-size: 17px;
+      font-weight: 700;
+      text-align: center;
+      text-decoration: none;
+    }
+
+    .demo-links a:hover {
+      background: var(--accent);
+      color: #07151d;
+    }
+
+    .demo-links a:focus-visible {
+      outline: 3px solid rgba(54, 185, 245, 0.35);
+      outline-offset: 3px;
+    }
+
+    @media (max-width: 560px) {
+      body {
+        padding: 14px;
+      }
+
+      .demo-index {
+        padding: 28px 22px;
+      }
+
+      .demo-links {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+
+<body>
+  <main class="demo-index">
+    <h1>Chord Transposer Demos</h1>
+
+    <p>
+      Choose an example to see how Chord Transposer works
+      with standard chord sheets or ChordPro songs.
+    </p>
+
+    <div class="demo-links">
+      <a href="demo-standard.html">
+        Standard Text Demo
+      </a>
+
+      <a href="demo-chordpro.html">
+        ChordPro Demo
+      </a>
+    </div>
+  </main>
+</body>
+</html>

@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta
+    name="description"
+    content="Minimal Chord Transposer integration example."
+  >
+  <title>Chord Transposer — ChordPro Demo</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <main class="demo">
+    <h1>ChordPro Demo</h1>
+
+    <p class="intro">
+      This example shows how Chord Transposer works with ChordPro content. Chords are stored inline with the lyrics, automatically transposed, and displayed as a clean, readable chord sheet.
+    </p>
+
+    <section class="panel">
+      <div
+        id="transposeButtons"
+        role="group"
+        aria-label="Transpose keys"
+      ></div>
+    </section>
+
+    <section class="panel song-card">
+      <div class="song-header">
+        <strong>ChordPro Song Example</strong>
+      </div>
+
+      <pre id="song">{title: Midnight Road}
+{artist: Alex Carter}
+{key: G}
+{capo: 2}
+{tempo: 96}
+{comment: Demo song for ChordPro Transposer}
+
+{start_of_bridge: Intro}
+[Gmaj7] [D/F#] [Em7] [Cadd9]
+{end_of_bridge}
+
+{start_of_verse: Verse 1}
+[Gmaj7]I was walking down a mi[D/F#]dnight road
+[Em7]With an old guitar and a heav[Cadd9]y load
+[G6]Every light was fading out of [Dsus4]sight
+[Em7]But I kept on moving through the [Cmaj7]night
+{end_of_verse}
+
+
+{start_of_chorus}
+[G]Take me home, [D/F#]take me home
+[Em7]To the place where I know I be[Cadd9]long
+[Gmaj7]Carry me on, c[Dsus4]arry me on
+[Em7]Till the dark turns into [Cmaj7]dawn
+{end_of_chorus}
+
+
+{start_of_verse: Verse 2}
+[Gmaj7]There were shadows moving by my[D/F#] side
+[Em7]There were questions I could neve[Cadd9]r hide
+[Am7]Even when the road feels lon[Em7]g
+[Cmaj7]I will keep on sing[D7]ing my own s[G6]ong
+{end_of_verse}
+
+
+{start_of_bridge: Outro}
+[Gmaj7] [D/F#] [Em7] [Cadd9]
+[G6]
+{end_of_bridge}</pre>
+    </section>
+    <div class="status-row">
+      <a class="repo-link" href="https://github.com/obicreo/chord-transposer" target="_blank" rel="noopener noreferrer">
+        View on GitHub
+      </a>
+    </div>
+  </main>
+
+  <script src="transpose-core.js"></script>
+  <script>
+    ChordTransposer.mount({
+      songElementId: "song",
+      transposeButtonsElementId: "transposeButtons",
+    });
+  </script>
+</body>
+</html>

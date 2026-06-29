@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta
+    name="description"
+    content="Minimal Chord Transposer integration example."
+  >
+  <title>Chord Transposer — Standard Text Demo</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <main class="demo">
+    <h1>Standard Text Demo</h1>
+
+    <p class="intro">
+      This example shows how Chord Transposer works with a traditional chord sheet where chords are written on separate lines above the lyrics. The original key is detected automatically, and the correct major or minor transpose buttons are generated for the song.
+    </p>
+
+    <section class="panel">
+      <div
+        id="transposeButtons"
+        role="group"
+        aria-label="Transpose keys"
+      ></div>
+    </section>
+
+    <section class="panel song-card">
+      <div class="song-header">
+        <strong>Standard Chord Sheet Example</strong>
+      </div>
+
+      <pre id="song">title: Midnight Road
+artist: Alex Carter
+key: G
+capo: 2
+tempo: 96
+comment: Demo song for ChordPro Transposer
+
+[Intro]
+Gmaj7   D/F#   Em7   Cadd9
+
+
+[Verse 1]
+Gmaj7                  D/F#
+I was walking down a midnight road
+Em7                          Cadd9
+With an old guitar and a heavy load
+G6                            Dsus4
+Every light was fading out of sight
+Em7                              Cmaj7
+But I kept on moving through the night
+
+
+[Chorus]
+G             D/F#
+Take me home, take me home
+Em7                           Cadd9
+To the place where I know I belong
+Gmaj7         Dsus4
+Carry me on, carry me on
+Em7                      Cmaj7
+Till the dark turns into dawn
+
+
+[Verse 2]
+Gmaj7                          D/F#
+There were shadows moving by my side
+Em7                              Cadd9
+There were questions I could never hide
+Am7                         Em7
+Even when the road feels long
+Cmaj7              D7          G6
+I will keep on singing my own song
+
+
+[Outro]
+Gmaj7   D/F#   Em7   Cadd9
+G6</pre>
+    </section>
+    <div class="status-row">
+      <a class="repo-link" href="https://github.com/obicreo/chord-transposer" target="_blank" rel="noopener noreferrer">
+        View on GitHub
+      </a>
+    </div>
+  </main>
+
+  <script src="transpose-core.js"></script>
+  <script>
+    ChordTransposer.mount({
+      songElementId: "song",
+      transposeButtonsElementId: "transposeButtons",
+    });
+  </script>
+</body>
+</html>
