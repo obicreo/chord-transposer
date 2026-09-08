@@ -1,5 +1,5 @@
 /*!
- * Chord Transposer Core v1.0.0
+ * Chord Transposer Core v1.0.1
  * https://github.com/obicreo/chord-transposer
  *
  * Copyright 2026 ObiCreo
@@ -54,6 +54,30 @@
   const SEPARATOR_TOKEN_REGEX =
     /^(?:N\.?C\.?|[|:%()\-–—]+)$/iu;
 
+  const ESCAPED_CHARACTER_PREFIX = "\uE000";
+
+  function preserveEscapedCharacters(value) {
+    const text = String(value ?? "");
+    let result = "";
+
+    for (let i = 0; i < text.length; i += 1) {
+      if (text[i] === "\\" && i + 1 < text.length) {
+        result += `${ESCAPED_CHARACTER_PREFIX}${text[i + 1]}`;
+        i += 1;
+        continue;
+      }
+
+      result += text[i];
+    }
+
+    return result;
+  }
+
+  function restoreEscapedCharacters(value) {
+    return String(value ?? "").replace(new RegExp(`${ESCAPED_CHARACTER_PREFIX}(.)`, "gu"), "$1");
+  }
+
+
   /*
    * These are the textual parts commonly used in chord symbols.
    * Numbers, accidentals and punctuation are checked separately.
@@ -85,6 +109,47 @@
       .replace(/\u00a0/g, " ")
       .replace(/\t/g, "    ")
       .replace(/\r\n?/g, "\n");
+  }
+
+  function isEscapedAt(text, index) {
+    let backslashes = 0;
+
+    for (let i = index - 1; i >= 0 && text[i] === "\\"; i -= 1) {
+      backslashes += 1;
+    }
+
+    return backslashes % 2 === 1;
+  }
+
+  function stripEscapeCharacters(value) {
+    const text = String(value ?? "");
+    let result = "";
+
+    for (let i = 0; i < text.length; i += 1) {
+      if (text[i] === "\\" && i + 1 < text.length) {
+        result += text[i + 1];
+        i += 1;
+        continue;
+      }
+
+      result += text[i];
+    }
+
+    return result;
+  }
+
+  function hasEscapedChordStart(value) {
+    const text = String(value ?? "");
+
+    for (let i = 0; i < text.length - 1; i += 1) {
+      if (text[i] === "\\" && /[A-Ga-g]/u.test(text[i + 1])) return true;
+
+      if (text[i] === "\\") {
+        i += 1;
+      }
+    }
+
+    return false;
   }
 
   function normalizeAccidentals(value) {
@@ -131,6 +196,19 @@
 
   function pitchForRoot(root) {
     return NOTE_TO_PITCH.get(normalizeNoteName(root));
+  }
+
+  function resolveSupportedKey(key) {
+    const normalized = normalizeKeyName(key);
+    if (!normalized) return null;
+
+    const keys = isMinorKey(normalized) ? MINOR_KEYS : MAJOR_KEYS;
+    if (keys.includes(normalized)) return normalized;
+
+    const pitch = pitchForRoot(keyRoot(normalized));
+    if (pitch === undefined) return null;
+
+    return keys.find((candidate) => pitchForRoot(keyRoot(candidate)) === pitch) ?? null;
   }
 
   function hasBalancedParentheses(value) {
@@ -210,6 +288,23 @@
       };
     }
 
+    const alternativeMatch = normalized.match(/^(.+)\/([A-Ga-g](?:#|b)?.+)$/u);
+
+    if (alternativeMatch) {
+      const left = parseChordToken(alternativeMatch[1]);
+      const right = parseChordToken(alternativeMatch[2]);
+
+      if (left?.type === "chord" && right?.type === "chord") {
+        return {
+          type: "chordAlternative",
+          original,
+          normalized,
+          left,
+          right
+        };
+      }
+    }
+
     const rootMatch = normalized.match(
       /^([A-Ga-g](?:#|b)?)(.*)$/u
     );
@@ -270,6 +365,38 @@
     );
   }
 
+  function parseSectionDirective(line) {
+    const match = String(line ?? "").match(/^\s*\{\s*(start_of|end_of)_([a-z0-9_]+)(?:\s*:\s*(.*?))?\s*\}\s*$/iu);
+    if (!match) return null;
+
+    return {
+      action: match[1].toLowerCase() === "start_of" ? "start" : "end",
+      name: match[2].toLowerCase(),
+      title: match[3]?.trim() ?? ""
+    };
+  }
+
+  function resolveOptionValue(option, fallback, section) {
+    const value = typeof option === "function" ? option(section) : option;
+    return value === undefined ? fallback : value;
+  }
+
+  function normalizeTagName(value, fallback) {
+    const tag = String(value ?? "");
+    return /^[a-z][a-z0-9-]*$/iu.test(tag) ? tag : fallback;
+  }
+
+  function sectionClassAttribute(value) {
+    return value ? ` class="${escapeHtml(value)}"` : "";
+  }
+
+  function isTabLine(line) {
+    const value = String(line ?? "").trim();
+    const match = value.match(/^([EADGBe](?:\|)?[-0-9hHpPbBrRsSxX~/\\().]+)(?:\s+.*)?$/u);
+    if (!match) return false;
+    return match[1].includes("-");
+  }
+
   function tokenizeChordLine(line) {
     return String(line ?? "")
       .trim()
@@ -277,39 +404,178 @@
       .filter(Boolean);
   }
 
-  function isChordLine(line) {
-    const tokens = tokenizeChordLine(line);
+  function parseInlineChordToken(token) {
+    const original = String(token ?? "");
+    if (!original) return null;
+    if (hasEscapedChordStart(original)) return null;
+    if (original.includes(ESCAPED_CHARACTER_PREFIX)) return null;
 
-    if (!tokens.length) {
-      return false;
+    const match = original.match(/^([("'[{]*)(.*?)([.,;!?:"')\]}]*)$/u);
+    if (!match) return null;
+
+    const prefix = match[1];
+    const value = match[2];
+    const suffix = match[3];
+
+    if (!value || /^[a-g]/u.test(value)) return null;
+
+    const parsed = parseChordToken(value);
+
+    if (parsed?.type === "chord" || parsed?.type === "chordAlternative") {
+      return {
+        ...parsed,
+        original,
+        chord: value,
+        prefix,
+        suffix
+      };
     }
+
+    if (/^(?:x\d+|\d+x|×\d+)$/iu.test(value)) {
+      return {
+        type: "repeat",
+        original,
+        value,
+        prefix,
+        suffix
+      };
+    }
+
+    if (parsed?.type === "separator") {
+      return {
+        ...parsed,
+        original,
+        value,
+        prefix,
+        suffix
+      };
+    }
+
+    return null;
+  }
+
+  function isStrongChordToken(parsed) {
+    if (!parsed) return false;
+    if (parsed.type === "chordAlternative") return true;
+    if (parsed.type !== "chord") return false;
+
+    return (
+      parsed.root.length > 1 ||
+      Boolean(parsed.descriptor) ||
+      Boolean(parsed.bass)
+    );
+  }
+
+  function analyzeInlineChordLine(line) {
+    if (isTabLine(line)) {
+      return {
+        tokens: [],
+        chordCount: 0,
+        strongChordCount: 0,
+        musicalMarkerCount: 0,
+        hasChordLayout: false,
+        hasMusicalContext: false
+      };
+    }
+
+    const source = String(line ?? "");
+    const tokens = [];
+    const regex = /\S+/gu;
+    let match;
+    let chordCount = 0;
+    let strongChordCount = 0;
+    let musicalMarkerCount = 0;
+    const chordTokens = [];
+
+    while ((match = regex.exec(source)) !== null) {
+      const parsed = parseInlineChordToken(match[0]);
+
+      if (parsed?.type === "chord" || parsed?.type === "chordAlternative") {
+        chordCount += 1;
+        if (isStrongChordToken(parsed)) strongChordCount += 1;
+
+        chordTokens.push({
+          start: match.index,
+          end: match.index + match[0].length
+        });
+      } else if (parsed?.type === "repeat" || parsed?.type === "separator") {
+        musicalMarkerCount += 1;
+      }
+
+      tokens.push({
+        token: match[0],
+        start: match.index,
+        parsed
+      });
+    }
+
+    let hasChordLayout = false;
+
+    for (let i = 1; i < chordTokens.length; i += 1) {
+      const previous = chordTokens[i - 1];
+      const current = chordTokens[i];
+      const gap = source.slice(previous.end, current.start);
+
+      if (/ {2,}/u.test(gap)) {
+        hasChordLayout = true;
+        break;
+      }
+    }
+
+    return {
+      tokens,
+      chordCount,
+      strongChordCount,
+      musicalMarkerCount,
+      hasChordLayout,
+      hasMusicalContext:
+        strongChordCount > 0 ||
+        musicalMarkerCount > 0 ||
+        hasChordLayout
+    };
+  }
+
+  function splitSectionPrefix(line) {
+    const match = String(line ?? "").match(/^(\s*[^:]+:\s*)(.+)$/u);
+    if (!match) return null;
+
+    const label = match[1].replace(/:\s*$/u, "").trim();
+    if (!isSectionHeaderToken(label)) return null;
+
+    return {
+      prefix: match[1],
+      content: match[2]
+    };
+  }
+
+  function isChordLine(line) {
+    if (isTabLine(line)) return false;
+    const section = splitSectionPrefix(line);
+    const tokens = tokenizeChordLine(section ? section.content : line);
+
+    if (!tokens.length) return false;
 
     let chordCount = 0;
 
     for (const token of tokens) {
       const parsed = parseChordToken(token);
-
-      if (!parsed) {
-        return false;
-      }
-
-      if (parsed.type === "chord") {
-        chordCount += 1;
-      }
+      if (!parsed) return false;
+      if (parsed.type === "chord" || parsed.type === "chordAlternative") chordCount += 1;
     }
 
-    /*
-     * A line containing only separators is not considered a chord line.
-     */
     return chordCount > 0;
   }
 
   function keyFromChordToken(token) {
     const parsed = parseChordToken(token);
 
-    if (!parsed || parsed.type !== "chord") {
-      return null;
+    if (!parsed) return null;
+
+    if (parsed.type === "chordAlternative") {
+      return keyFromChordToken(parsed.left.original);
     }
+
+    if (parsed.type !== "chord") return null;
 
     /*
      * Determine minor quality from the beginning of descriptor.
@@ -349,43 +615,38 @@
     let bracketMatch;
 
     while ((bracketMatch = bracketRegex.exec(normalized)) !== null) {
+      if (isEscapedAt(normalized, bracketMatch.index)) continue;
+
       const content = bracketMatch[1].trim();
 
-      if (
-        !content ||
-        isSectionHeaderToken(content)
-      ) {
-        continue;
-      }
+      if (!content || isSectionHeaderToken(content)) continue;
 
       const key = keyFromChordToken(content);
-
-      if (key) {
-        return key;
-      }
+      if (key) return key;
     }
 
     for (const line of normalized.split("\n")) {
       const trimmed = line.trim();
 
-      if (
-        !trimmed ||
-        trimmed.startsWith("#") ||
-        trimmed.includes(":") ||
-        isSectionHeaderToken(
-          trimmed.replace(/^\[|\]$/g, "")
-        ) ||
-        !isChordLine(line)
-      ) {
-        continue;
-      }
+      if (!trimmed || trimmed.startsWith("#") || isTabLine(line)) continue;
 
-      for (const token of tokenizeChordLine(line)) {
-        const key = keyFromChordToken(token);
+      const analysis = analyzeInlineChordLine(line);
+      const fullChordLine = isChordLine(line);
 
-        if (key) {
-          return key;
-        }
+      for (const item of analysis.tokens) {
+        const parsed = item.parsed;
+
+        if (parsed?.type !== "chord" && parsed?.type !== "chordAlternative") continue;
+
+        const shouldDetect =
+          fullChordLine ||
+          isStrongChordToken(parsed) ||
+          analysis.hasMusicalContext;
+
+        if (!shouldDetect) continue;
+
+        const key = keyFromChordToken(parsed.chord);
+        if (key) return key;
       }
     }
 
@@ -413,27 +674,18 @@
   function detectFormat(text) {
     const normalized = normalizeText(text);
 
-    if (/^\s*\{[^}]+\}\s*$/mu.test(normalized)) {
-      return "chordpro";
-    }
-
     const bracketRegex = /\[([^\]]+)\]/gu;
     let match;
 
     while ((match = bracketRegex.exec(normalized)) !== null) {
+      if (isEscapedAt(normalized, match.index)) continue;
+
       const content = match[1].trim();
 
-      if (
-        isSectionHeaderToken(content)
-      ) {
-        continue;
-      }
+      if (isSectionHeaderToken(content)) continue;
 
       const parsed = parseChordToken(content);
-
-      if (parsed?.type === "chord") {
-        return "chordpro";
-      }
+      if (parsed?.type === "chord" || parsed?.type === "chordAlternative") return "chordpro";
     }
 
     return "text";
@@ -494,6 +746,12 @@
       return chord;
     }
 
+    if (parsed.type === "chordAlternative") {
+      const left = transposeChordToken(parsed.left.original, semitones, targetKey);
+      const right = transposeChordToken(parsed.right.original, semitones, targetKey);
+      return `${left}/${right}`;
+    }
+
     const rootPreference =
       accidentalPreference(
         parsed.root,
@@ -502,9 +760,9 @@
 
     const bassPreference = parsed.bass
       ? accidentalPreference(
-          parsed.bass,
-          targetKey
-        )
+        parsed.bass,
+        targetKey
+      )
       : null;
 
     const newRoot = transposeRoot(
@@ -516,11 +774,11 @@
 
     const newBass = parsed.bass
       ? `/${transposeRoot(
-          parsed.bass,
-          semitones,
-          targetKey,
-          bassPreference
-        )}`
+        parsed.bass,
+        semitones,
+        targetKey,
+        bassPreference
+      )}`
       : "";
 
     return `${newRoot}${parsed.descriptor}${newBass}`;
@@ -529,41 +787,31 @@
   function parseChordProAnchors(line) {
     const lyricCharacters = [];
     const anchors = [];
-
     let lyricIndex = 0;
     let cursor = 0;
 
     while (cursor < line.length) {
-      if (line[cursor] === "[") {
-        const closeIndex = line.indexOf(
-          "]",
-          cursor + 1
-        );
+      if (line[cursor] === "\\" && cursor + 1 < line.length) {
+        lyricCharacters.push(`${ESCAPED_CHARACTER_PREFIX}${line[cursor + 1]}`);
+        lyricIndex += 1;
+        cursor += 2;
+        continue;
+      }
+
+      if (line[cursor] === "[" && !isEscapedAt(line, cursor)) {
+        const closeIndex = line.indexOf("]", cursor + 1);
 
         if (closeIndex !== -1) {
-          const content = line
-            .slice(cursor + 1, closeIndex)
-            .trim();
-
+          const content = line.slice(cursor + 1, closeIndex).trim();
           const parsed = parseChordToken(content);
 
-          if (
-            parsed?.type === "chord" &&
-            !isSectionHeaderToken(content)
-          ) {
-            anchors.push({
-              chord: content,
-              lyricIndex
-            });
-
+          if ((parsed?.type === "chord" || parsed?.type === "chordAlternative") && !isSectionHeaderToken(content)) {
+            anchors.push({ chord: content, lyricIndex });
             cursor = closeIndex + 1;
             continue;
           }
 
-          const literal = line.slice(
-            cursor,
-            closeIndex + 1
-          );
+          const literal = line.slice(cursor, closeIndex + 1);
 
           for (const character of Array.from(literal)) {
             lyricCharacters.push(character);
@@ -575,19 +823,13 @@
         }
       }
 
-      const character = Array.from(
-        line.slice(cursor)
-      )[0];
-
+      const character = Array.from(line.slice(cursor))[0];
       lyricCharacters.push(character);
       lyricIndex += 1;
       cursor += character.length;
     }
 
-    return {
-      lyricCharacters,
-      anchors
-    };
+    return { lyricCharacters, anchors };
   }
 
   function renderChordProChordLine(anchors) {
@@ -621,46 +863,18 @@
     const result = [];
 
     for (const line of lines) {
-      const directive = line.match(
-        /^\s*\{\s*([^:}]+)(?:\s*:\s*(.*?))?\s*\}\s*$/u
-      );
+      const directive = line.match(/^\s*\{\s*([^:}]+)(?:\s*:\s*(.*?))?\s*\}\s*$/u);
 
       if (directive) {
-        const name = directive[1]
-          .trim()
-          .toLowerCase();
+        const name = directive[1].trim().toLowerCase();
+        const value = directive[2]?.trim() ?? "";
 
-        const value =
-          directive[2]?.trim() ?? "";
+        if (name.startsWith("start_of_") || name.startsWith("end_of_")) {
+        result.push(line);
+        continue;
+      }
 
-        if (name.startsWith("end_of_")) {
-          continue;
-        }
-
-        if (name.startsWith("start_of_")) {
-          const fallbackLabel = name
-            .replace("start_of_", "")
-            .replaceAll("_", " ");
-
-          const label =
-            value || fallbackLabel;
-
-          result.push(`[${label}]`);
-          continue;
-        }
-
-        if (
-          [
-            "title",
-            "artist",
-            "key",
-            "capo",
-            "album",
-            "year",
-            "tempo",
-            "comment"
-          ].includes(name)
-        ) {
+        if (["title", "artist", "key", "capo", "album", "year", "tempo", "comment"].includes(name)) {
           result.push(`${name}: ${value}`);
           continue;
         }
@@ -669,26 +883,17 @@
         continue;
       }
 
-      const {
-        lyricCharacters,
-        anchors
-      } = parseChordProAnchors(line);
+      const { lyricCharacters, anchors } = parseChordProAnchors(line);
 
       if (!anchors.length) {
-        result.push(line);
+        result.push(lyricCharacters.join(""));
         continue;
       }
 
-      result.push(
-        renderChordProChordLine(anchors)
-      );
+      result.push(renderChordProChordLine(anchors));
 
-      const lyricLine =
-        lyricCharacters.join("");
-
-      if (lyricLine.length > 0) {
-        result.push(lyricLine);
-      }
+      const lyricLine = lyricCharacters.join("");
+      if (lyricLine.length > 0) result.push(lyricLine);
     }
 
     return result.join("\n");
@@ -749,77 +954,48 @@
     return result;
   }
 
-  function transposeChordPro(
-    text,
-    semitones,
-    targetKey
-  ) {
+  function transposeChordPro(text, semitones, targetKey) {
     return normalizeText(text)
       .split("\n")
       .map((line) => {
-        const {
-          lyricCharacters,
-          anchors
-        } = parseChordProAnchors(line);
-
-        if (!anchors.length) {
-          return line;
-        }
-
-        return rebuildChordProLine(
-          lyricCharacters,
-          anchors,
-          semitones,
-          targetKey
-        );
+        const { lyricCharacters, anchors } = parseChordProAnchors(line);
+        if (!anchors.length) return lyricCharacters.join("");
+        return rebuildChordProLine(lyricCharacters, anchors, semitones, targetKey);
       })
       .join("\n");
   }
 
-  function rebuildTransposedChordLine(
-    line,
-    semitones,
-    targetKey
-  ) {
-    const tokens = [];
-    const regex = /\S+/gu;
-    let match;
-
-    while ((match = regex.exec(line)) !== null) {
-      tokens.push({
-        token: match[0],
-        start: match.index
-      });
-    }
-
+  function rebuildTransposedChordLine(line, semitones, targetKey) {
+    if (isTabLine(line)) return line;
+    const analysis = analyzeInlineChordLine(line);
+    const fullChordLine = isChordLine(line);
     let result = "";
+    let cursor = 0;
 
-    for (const item of tokens) {
-      const parsed = parseChordToken(item.token);
+    for (const item of analysis.tokens) {
+      result += line.slice(cursor, item.start);
 
-      const value =
-        parsed?.type === "chord"
-          ? transposeChordToken(
-              item.token,
-              semitones,
-              targetKey
-            )
-          : item.token;
+      const parsed = item.parsed;
 
-      if (result.length < item.start) {
-        result += " ".repeat(
-          item.start - result.length
-        );
-      } else if (
-        result.length > 0 &&
-        !result.endsWith(" ")
-      ) {
-        result += " ";
+      if (parsed?.type === "chord" || parsed?.type === "chordAlternative") {
+        const shouldTranspose =
+          fullChordLine ||
+          isStrongChordToken(parsed) ||
+          analysis.hasMusicalContext;
+
+        if (shouldTranspose) {
+          result += `${parsed.prefix}${transposeChordToken(parsed.chord, semitones, targetKey)}${parsed.suffix}`;
+        } else {
+          result += item.token;
+        }
+      } else {
+        result += item.token;
       }
 
-      result += value;
+      cursor = item.start + item.token.length;
     }
 
+    result += line.slice(cursor);
     return result;
   }
 
@@ -831,10 +1007,6 @@
     return normalizeText(text)
       .split("\n")
       .map((line) => {
-        if (!isChordLine(line)) {
-          return line;
-        }
-
         return rebuildTransposedChordLine(
           line,
           semitones,
@@ -883,53 +1055,72 @@
       .replace(/'/g, "&#039;");
   }
 
-  function wrapStandardTextChords(text) {
+  function wrapChord(value, options = {}) {
+    const tag = options.chordTag || "span";
+    const className = options.chordClass;
+    const classAttribute = className ? ` class="${escapeHtml(className)}"` : "";
+    return `<${tag}${classAttribute}>${value}</${tag}>`;
+  }
+
+  function wrapStandardTextChords(text, options = {}) {
     return normalizeText(text)
       .split("\n")
       .map((line) => {
-        if (!isChordLine(line)) {
-          return escapeHtml(line);
+        if (isTabLine(line)) return escapeHtml(restoreEscapedCharacters(line));
+        const analysis = analyzeInlineChordLine(line);
+        const fullChordLine = isChordLine(line);
+        let result = "";
+        let cursor = 0;
+
+        for (const item of analysis.tokens) {
+          result += escapeHtml(restoreEscapedCharacters(line.slice(cursor, item.start)));
+
+          const parsed = item.parsed;
+
+          if (parsed?.type === "chord" || parsed?.type === "chordAlternative") {
+            const shouldWrap =
+              fullChordLine ||
+              isStrongChordToken(parsed) ||
+              analysis.hasMusicalContext;
+
+            result += shouldWrap
+              ? `${escapeHtml(parsed.prefix)}${wrapChord(escapeHtml(parsed.chord), options)}${escapeHtml(parsed.suffix)}`
+              : escapeHtml(item.token);
+          } else {
+            result += escapeHtml(restoreEscapedCharacters(stripEscapeCharacters(item.token)));
+          }
+
+          cursor = item.start + item.token.length;
         }
 
-        return line.replace(
-          /\S+/gu,
-          (token) => {
-            const parsed = parseChordToken(token);
-
-            if (parsed?.type === "chord") {
-              return `<span class="chord">${escapeHtml(token)}</span>`;
-            }
-
-            return escapeHtml(token);
-          }
-        );
+        result += escapeHtml(restoreEscapedCharacters(stripEscapeCharacters(line.slice(cursor))));
+        return result;
       })
       .join("\n");
   }
 
-  function wrapChordProChords(text) {
+  function wrapChordProChords(text, options = {}) {
     const normalized = normalizeText(text);
     const result = [];
-
     let cursor = 0;
     const regex = /\[([^\]]+)\]/gu;
     let match;
 
     while ((match = regex.exec(normalized)) !== null) {
-      result.push(
-        escapeHtml(normalized.slice(cursor, match.index))
-      );
+      if (isEscapedAt(normalized, match.index)) {
+        result.push(escapeHtml(normalized.slice(cursor, match.index - 1)));
+        result.push(escapeHtml(match[0]));
+        cursor = match.index + match[0].length;
+        continue;
+      }
+
+      result.push(escapeHtml(normalized.slice(cursor, match.index)));
 
       const value = match[1].trim();
       const parsed = parseChordToken(value);
 
-      if (
-        parsed?.type === "chord" &&
-        !isSectionHeaderToken(value)
-      ) {
-        result.push(
-          `<span class="chord">[${escapeHtml(value)}]</span>`
-        );
+      if ((parsed?.type === "chord" || parsed?.type === "chordAlternative") && !isSectionHeaderToken(value)) {
+        result.push(wrapChord(`[${escapeHtml(value)}]`, options));
       } else {
         result.push(escapeHtml(match[0]));
       }
@@ -938,19 +1129,62 @@
     }
 
     result.push(escapeHtml(normalized.slice(cursor)));
-
     return result.join("");
   }
 
-  function wrapChordMarkup(text, format = "auto") {
-    const resolvedFormat =
-      format === "text" || format === "chordpro"
-        ? format
-        : detectFormat(text);
+  function wrapChordMarkup(text, format = "auto", options = {}) {
+    const resolvedFormat = format === "text" || format === "chordpro" ? format : detectFormat(text);
+    return resolvedFormat === "chordpro" ? wrapChordProChords(text, options) : wrapStandardTextChords(text, options);
+  }
 
-    return resolvedFormat === "chordpro"
-      ? wrapChordProChords(text)
-      : wrapStandardTextChords(text);
+  function wrapSongMarkup(text, format = "auto", options = {}) {
+    const lines = normalizeText(text).split("\n");
+    const result = [];
+    const sections = [];
+
+    for (const line of lines) {
+      const directive = parseSectionDirective(line);
+
+      if (!directive) {
+        result.push(wrapChordMarkup(line, format, options));
+        continue;
+      }
+
+      if (directive.action === "start") {
+        const section = {
+          name: directive.name,
+          title: directive.title || directive.name.replaceAll("_", " ")
+        };
+
+        const tag = normalizeTagName(options.sectionTag, "span");
+        const titleTag = normalizeTagName(options.sectionTitleTag, "span");
+        const className = resolveOptionValue(options.sectionClass, section.name.replaceAll("_", "-"), section);
+        const titleClassName = resolveOptionValue(options.sectionTitleClass, `${section.name.replaceAll("_", "-")}-title`, section);
+        const formattedTitle = typeof options.sectionTitleFormatter === "function"
+          ? options.sectionTitleFormatter(section.title, section)
+          : `[${section.title}]`;
+
+        result.push(`<${tag}${sectionClassAttribute(className)}><${titleTag}${sectionClassAttribute(titleClassName)}>${escapeHtml(formattedTitle)}</${titleTag}>`);
+        sections.push({ name: section.name, tag });
+        continue;
+      }
+
+      const current = sections[sections.length - 1];
+
+      if (!current || current.name !== directive.name) {
+        result.push(escapeHtml(line));
+        continue;
+      }
+
+      result.push(`</${current.tag}>`);
+      sections.pop();
+    }
+
+    while (sections.length) {
+      result.push(`</${sections.pop().tag}>`);
+    }
+
+    return result.join("\n");
   }
 
   function transposeText(text, options = {}) {
@@ -994,22 +1228,22 @@
 
     const format =
       options.format === "text" ||
-      options.format === "chordpro"
+        options.format === "chordpro"
         ? options.format
         : detectFormat(normalized);
 
     let result =
       format === "chordpro"
         ? transposeChordPro(
-            normalized,
-            semitones,
-            targetKey
-          )
+          normalized,
+          semitones,
+          targetKey
+        )
         : transposeStandardText(
-            normalized,
-            semitones,
-            targetKey
-          );
+          normalized,
+          semitones,
+          targetKey
+        );
 
     result = updateKeyMetadata(
       result,
@@ -1017,12 +1251,9 @@
       format
     );
 
-    const wrapChords =
-      options.wrapChords !== false;
+    const wrapChords = options.wrapChords !== false;
 
-    const outputText = wrapChords
-      ? wrapChordMarkup(result, format)
-      : result;
+    const outputText = wrapChords ? wrapSongMarkup(result, format, options) : result;
 
     return {
       text: outputText,
@@ -1090,6 +1321,11 @@
     return element;
   }
 
+  function resolveOptionalElement(reference) {
+    if (!reference) return null;
+    return typeof reference === "string" ? document.getElementById(reference) : reference;
+  }
+
   function mount(
     configOrSongReference,
     buttonsReference,
@@ -1103,10 +1339,10 @@
     const config = usesConfigObject
       ? configOrSongReference
       : {
-          songElementId: configOrSongReference,
-          transposeButtonsElementId: buttonsReference,
-          ...legacyOptions
-        };
+        songElementId: configOrSongReference,
+        transposeButtonsElementId: buttonsReference,
+        ...legacyOptions
+      };
 
     const songReference =
       config.songElement ??
@@ -1117,6 +1353,7 @@
       config.transposeButtonsElementId;
 
     const options = config;
+    const enabled = options.enabled !== false;
 
     const songElement =
       resolveElement(songReference, "Song");
@@ -1127,29 +1364,89 @@
         "Buttons"
       );
 
+    const transposeUpElement = 
+      resolveOptionalElement(
+        options.transposeUpElement ?? options.transposeUpElementId
+      );
+
+    const transposeDownElement = 
+      resolveOptionalElement(
+        options.transposeDownElement ?? options.transposeDownElementId
+      );
+
     const originalText =
       options.sourceText ??
       songElement.textContent ??
       "";
 
+    function createDisabledController(reason = "disabled") {
+      buttonsElement.replaceChildren();
+
+      if (transposeUpElement) transposeUpElement.disabled = true;
+      if (transposeDownElement) transposeDownElement.disabled = true;
+
+      return {
+        songElement,
+        buttonsElement,
+        enabled: false,
+        reason,
+        sourceKey: null,
+        format: null,
+        keys: [],
+        showOriginalMark: false,
+
+        get targetKey() {
+          return null;
+        },
+
+        selectKey() {
+          return null;
+        },
+
+        transposeBy() {
+          return null;
+        },
+
+        transposeUp() {
+          return null;
+        },
+
+        transposeDown() {
+          return null;
+        },
+
+        reset() {
+          return null;
+        },
+
+        destroy() {
+          buttonsElement.replaceChildren();
+        }
+      };
+    }
+
+    if (!enabled) {
+      return createDisabledController("disabled");
+    }
+
     const explicitSourceKey =
       normalizeKeyName(options.sourceKey) ??
       normalizeKeyName(songElement.dataset?.key);
 
-    const sourceKey =
+    const detectedSourceKey =
       detectKey(originalText, {
         sourceKey: explicitSourceKey
       });
 
+    const sourceKey = resolveSupportedKey(detectedSourceKey);
+
     if (!sourceKey) {
-      throw new Error(
-        "Source key could not be detected. Add data-key, key:, {key: ...}, or sourceKey."
-      );
+      return createDisabledController("source-key-not-detected");
     }
 
     const format =
       options.format === "text" ||
-      options.format === "chordpro"
+        options.format === "chordpro"
         ? options.format
         : detectFormat(originalText);
 
@@ -1198,11 +1495,7 @@
         : format;
 
       if (options.wrapChords !== false) {
-        songElement.innerHTML =
-          wrapChordMarkup(
-            displayText,
-            displayFormat
-          );
+        songElement.innerHTML = wrapSongMarkup(displayText, displayFormat, options);
       } else {
         songElement.textContent =
           displayText;
@@ -1229,6 +1522,28 @@
       }
     }
 
+    function transposeBy(semitones) {
+      const amount = Number(semitones);
+      if (!Number.isFinite(amount)) return null;
+
+      const currentPitch = pitchForRoot(keyRoot(selectedKey));
+      if (currentPitch === undefined) return null;
+
+      const targetPitch = ((currentPitch + amount) % 12 + 12) % 12;
+      const targetKey = keys.find((key) => pitchForRoot(keyRoot(key)) === targetPitch);
+
+      if (!targetKey) return null;
+
+      selectedKey = targetKey;
+
+      const result = renderSong();
+      updateButtons();
+
+      if (typeof options.onChange === "function") options.onChange(result);
+
+      return result;
+    }
+
     function selectKey(key) {
       const normalizedKey =
         normalizeKeyName(key);
@@ -1251,6 +1566,15 @@
 
       return result;
     }
+
+    const handleTransposeUp = () => transposeBy(1);
+    const handleTransposeDown = () => transposeBy(-1);
+
+    if (transposeUpElement) 
+      transposeUpElement.addEventListener("click", handleTransposeUp);
+
+    if (transposeDownElement) 
+      transposeDownElement.addEventListener("click", handleTransposeDown);
 
     buttonsElement.replaceChildren();
 
@@ -1284,6 +1608,8 @@
     return {
       songElement,
       buttonsElement,
+      enabled: true,
+      reason: null,
       sourceKey,
       format,
       keys: [...keys],
@@ -1294,12 +1620,24 @@
       },
 
       selectKey,
+      transposeBy,
+
+      transposeUp() {
+        return transposeBy(1);
+      },
+
+      transposeDown() {
+        return transposeBy(-1);
+      },
 
       reset() {
         return selectKey(sourceKey);
       },
 
       destroy() {
+        if (transposeUpElement) transposeUpElement.removeEventListener("click", handleTransposeUp);
+        if (transposeDownElement) transposeDownElement.removeEventListener("click", handleTransposeDown);
+
         buttonsElement.replaceChildren();
         songElement.textContent = originalText;
         songElement.dataset.key = sourceKey;
@@ -1314,6 +1652,8 @@
     normalizeKeyName,
     parseChordToken,
     isMinorKey,
+    parseSectionDirective,
+    wrapSongMarkup,
     isLikelyChordToken,
     isSectionHeaderToken,
     isChordLine,

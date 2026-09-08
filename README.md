@@ -4,19 +4,31 @@ A lightweight, dependency-free JavaScript plugin for transposing standard chord 
 
 Chord Transposer detects the source key, determines whether the song uses a major or minor key, generates the appropriate transpose buttons, and always transposes from the original source text.
 
+## Live Demo
+
+https://obicreo.github.io/chord-transposer/
+
 ## Features
 
 - No external dependencies
 - Standard chord-over-lyrics text support
 - ChordPro support
 - Automatic format and source-key detection
+- Graceful disabled mode when no source key can be detected
 - Major and minor key-button generation
 - Extended and jazz chord support
 - Slash chords such as `D/F#`
+- Alternative chord tokens such as `A/Asus4`
 - Numeric slash extensions such as `G6/9`
-- Optional `<span class="chord">` markup
+- Backslash escaping for literal chord-like text
+- TAB-line detection that avoids treating tablature as chord lines
+- Section directives such as `{start_of_verse: Verse 1}` and `{end_of_verse}`
+- Automatic section markup for both standard text and ChordPro display output
+- Configurable chord markup tag and class
 - Plain-text output mode
 - Original-key marker
+- Optional previous/next semitone controls
+- Initial target-key support
 - ChordPro rendered as a readable chord sheet by default
 - No cumulative transposition errors
 
@@ -68,7 +80,7 @@ The plugin automatically:
 - Always transposes from the original song
 - Updates the active button
 - Marks the original key
-- Wraps detected chords with `<span class="chord">`
+- Wraps detected chords with configurable HTML markup
 
 ## Standard Text Example
 
@@ -80,11 +92,12 @@ title: Midnight Road
 artist: Alex Carter
 key: G
 
-[Verse 1]
+{start_of_verse: Verse 1}
 Gmaj7                    D/F#
 I was walking down a midnight road
 Em7                      Cadd9
 With an old guitar and a heavy load
+{end_of_verse}
 </pre>
 
 <script src="transpose-core.js"></script>
@@ -131,6 +144,22 @@ ChordTransposer.mount({
 });
 ```
 
+## Sections
+
+Section directives are recognized in both standard text and ChordPro input:
+
+```text
+{start_of_verse: Verse 1}
+G            D
+Song content
+{end_of_verse}
+```
+
+When mounted, the section is rendered with semantic wrapper classes derived from the section name. For example, `verse` sections produce a section wrapper and a `verse-title` title element.
+
+Section rendering is enabled by default and does not require a separate mount option.
+
+
 ## Source-Key Detection
 
 The source key is resolved in this order:
@@ -143,16 +172,23 @@ The source key is resolved in this order:
 
 For predictable results, provide `sourceKey`, `data-key`, or a key metadata line.
 
+Detected enharmonic keys are normalized to the plugin's supported 12-key button set. For example, a detected `G#` major source key is represented as `Ab` for key selection while the original chord spelling is preserved when no transposition is applied.
+
 ## Configuration
 
 ```js
 const transposer = ChordTransposer.mount({
   songElementId: "song",
   transposeButtonsElementId: "transposeButtons",
+  transposeDownElementId: "transposeDown",
+  transposeUpElementId: "transposeUp",
   sourceKey: "G",
   targetKey: "A",
   format: "text",
+  enabled: true,
   wrapChords: true,
+  chordTag: "span",
+  chordClass: "chord",
   showChordProAsText: true,
   showOriginalMark: true,
   buttonClass: "key-button",
@@ -172,17 +208,36 @@ const transposer = ChordTransposer.mount({
 | `transposeButtonsElementId` | `string` | — | ID of the key-button container |
 | `songElement` | `HTMLElement` | — | Song element instead of an ID |
 | `transposeButtonsElement` | `HTMLElement` | — | Button container instead of an ID |
+| `transposeDownElementId` | `string` | — | Optional previous-semitone button ID |
+| `transposeUpElementId` | `string` | — | Optional next-semitone button ID |
 | `sourceText` | `string` | element text | Source song text |
 | `sourceKey` | `string` | detected | Explicit source key |
 | `targetKey` | `string` | source key | Initial target key |
 | `format` | `"text"` or `"chordpro"` | detected | Explicit input format |
-| `wrapChords` | `boolean` | `true` | Wrap chords with `<span class="chord">` |
+| `enabled` | `boolean` | `true` | Enable or disable transposition behavior |
+| `wrapChords` | `boolean` | `true` | Enable or disable HTML markup around detected chords |
+| `chordTag` | `string` | `"span"` | HTML tag used to wrap detected chords |
+| `chordClass` | `string` | — | Optional CSS class applied to wrapped chords |
 | `showChordProAsText` | `boolean` | `true` | Render ChordPro as a readable chord sheet |
 | `showOriginalMark` | `boolean` | `true` | Mark the original-key button |
 | `buttonClass` | `string` | `"key-button"` | Generated button class |
 | `activeClass` | `string` | `"active"` | Selected button class |
 | `originalClass` | `string` | `"original"` | Original-key button class |
 | `onChange` | `function` | — | Runs after a successful key change |
+
+## Disabled Mode
+
+Transposition can be disabled explicitly:
+
+```js
+ChordTransposer.mount({
+  songElementId: "song",
+  transposeButtonsElementId: "transposeButtons",
+  enabled: false
+});
+```
+
+The plugin also fails gracefully when a usable source key cannot be detected. Instead of throwing during normal mounting, it returns a passive controller and leaves the song content usable.
 
 ## Returned Controller
 
@@ -214,6 +269,25 @@ The controller exposes:
 - `selectKey(key)`
 - `reset()`
 - `destroy()`
+
+## Initial Target Key and URL Hash
+
+`targetKey` can be used to open a song directly in a selected key. A common browser integration is to store the selected key in the URL hash:
+
+```js
+const targetKey = window.location.hash.slice(1);
+
+ChordTransposer.mount({
+  songElementId: "song",
+  transposeButtonsElementId: "transposeButtons",
+  targetKey: targetKey || undefined,
+  onChange(result) {
+    history.replaceState(null, "", `#${result.targetKey}`);
+  }
+});
+```
+
+Opening a URL ending in `#Em`, for example, initializes the mounted song in `Em` when that target key is valid.
 
 ## Plain-Text Output
 
@@ -313,6 +387,33 @@ ChordTransposer.mount({
 });
 ```
 
+## Escaping Literal Chord-Like Text
+
+Use a backslash to escape the next character when text should remain literal instead of being parsed as chord syntax.
+
+For example:
+
+```text
+\[A]
+```
+
+The escape marker is preserved internally while parsing and removed in the final rendered output.
+
+## Tablature Detection
+
+TAB lines are excluded from normal chord-line parsing. Typical lines such as:
+
+```text
+e------------------------------
+B------------------------------
+G------------2-----------------
+D-------2-3----3-2-0-2---------
+A----0-------------------------
+E------------------------------
+```
+
+remain tablature instead of being wrapped or transposed as chord text. Trailing annotations on TAB lines are also tolerated.
+
 ## Supported Chord Examples
 
 ```text
@@ -339,6 +440,7 @@ Cø7
 C°7
 C6/9
 D13(b9)/F#
+A/Asus4
 ```
 
 The parser also recognizes separator tokens such as `|`, `:`, `%`, `N.C.`, `-`, `–`, and `—`.
@@ -365,6 +467,7 @@ ChordTransposer.detectFormat(text);
 
 ChordTransposer.escapeHtml(value);
 ChordTransposer.wrapChordMarkup(text, format);
+ChordTransposer.wrapSongMarkup(text, format, options);
 ChordTransposer.parseChordProAnchors(line);
 ChordTransposer.rebuildChordProLine(lyricCharacters, anchors, semitones, targetKey);
 ChordTransposer.renderChordProChordLine(anchors);
