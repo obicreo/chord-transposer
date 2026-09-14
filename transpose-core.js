@@ -52,7 +52,7 @@
   ]);
 
   const SEPARATOR_TOKEN_REGEX =
-    /^(?:N\.?C\.?|[|:%()\-–—]+)$/iu;
+    /^(?:N\.?C\.?|[|/:%()\-–—]+)$/iu;
 
   const ESCAPED_CHARACTER_PREFIX = "\uE000";
 
